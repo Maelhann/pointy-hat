@@ -1,0 +1,84 @@
+spell:
+  name: competitive-analysis
+  version: "1.0.0"
+  description: Generates a competitive landscape analysis from market data
+  author: strategy-team
+  license: MIT
+  tags:
+    - strategy
+    - analysis
+    - market-research
+
+  inputs:
+    required:
+      - id: market-data
+        description: Market data including competitor information
+        formats:
+          - csv
+          - json
+      - id: company-profile
+        description: Your company's key metrics and positioning
+        formats:
+          - text
+          - md
+    optional:
+      - id: previous-analysis
+        description: Prior competitive analysis for trend comparison
+        formats:
+          - pdf
+          - md
+
+  catalysts:
+    - id: analysis-framework
+      description: Porter's Five Forces and SWOT analysis templates
+      uri: "catalyst://competitive-analysis/framework.md"
+      type: reference
+
+  requires:
+    tools: []
+    resources: []
+
+  outputs:
+    - id: analysis-report
+      type: document
+      format:
+        - md
+        - pdf
+      description: Comprehensive competitive landscape analysis
+      acceptance_criteria: |
+        Must analyze at least 3 competitors, include market positioning map,
+        identify key differentiators, and provide strategic recommendations.
+      inputs_needed:
+        - market-data
+        - company-profile
+      catalysts_needed:
+        - analysis-framework
+      quality_check:
+        criteria: |
+          Analysis covers at least 3 competitors with specific data points,
+          includes strategic recommendations, and uses the analysis framework.
+        min_score: 0.75
+        retry_on_failure: true
+        max_retries: 2
+    - id: competitor-matrix
+      type: data
+      format:
+        - json
+      description: Structured competitor comparison matrix
+      depends_on:
+        - analysis-report
+
+  effects:
+    - id: insights-logged
+      type: tracking
+      description: Key competitive insights logged for trend tracking
+      verification: Insights stored with timestamps and source references
+      depends_on:
+        - analysis-report
+
+  steps: []
+
+  metadata:
+    min_pointyhat_version: "0.1.0"
+    estimated_duration: 5-10 minutes
+    category: strategy

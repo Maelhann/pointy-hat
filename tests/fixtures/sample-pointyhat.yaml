@@ -1,0 +1,28 @@
+registry: https://api.pointyhat.org
+
+platforms:
+  - claude-code
+  - cursor
+
+mcps:
+  "@mcp/github":
+    version: "^1.2.0"
+    env:
+      GITHUB_TOKEN: "${env:GITHUB_TOKEN}"
+    platforms:
+      - claude-code
+      - cursor
+  "@mcp/filesystem":
+    version: "^1.0.0"
+    args:
+      - /home/user/projects
+
+spells:
+  code-review-pro:
+    version: "^1.0.0"
+  quarterly-report:
+    version: "2.1.0"
+
+defaults:
+  platform: cursor
+  output_format: human

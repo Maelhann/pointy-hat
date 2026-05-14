@@ -1,0 +1,47 @@
+spell:
+  name: templated-financial-report
+  version: "1.0.0"
+  description: Generates a structured quarterly financial report using an artifact template
+  author: acme-corp
+  license: MIT
+  tags:
+    - finance
+    - reports
+    - templated
+
+  inputs:
+    required:
+      - id: financial-data
+        description: Financial data with revenue, expenses, and margins
+        formats:
+          - csv
+          - xlsx
+    optional: []
+
+  catalysts: []
+
+  requires:
+    tools: []
+    resources: []
+
+  outputs:
+    - id: report-document
+      type: document
+      format:
+        - md
+      description: Structured quarterly financial report
+      acceptance_criteria: Must include all sections filled with specific data
+      artifact: "artifact://templated-financial-report/report-template.md"
+      quality_check:
+        criteria: All sections are complete and reference actual financial data
+        min_score: 0.8
+        retry_on_failure: true
+        max_retries: 2
+
+  effects: []
+  steps: []
+
+  metadata:
+    min_pointyhat_version: "0.1.0"
+    estimated_duration: 3-5 minutes
+    category: finance

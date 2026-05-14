@@ -1,0 +1,1366 @@
+# Pointy Hat CLI - Development Plan
+
+## Context
+
+Pointy Hat is the open registry and orchestration layer for the AI agent ecosystem, built on top of MCP (Model Context Protocol). MCP standardized how agents call tools, but nobody solved discovery, installation, quality, orchestration, portability, or monetization. Pointy Hat fills this gap - it is to MCP what npm was to Node.js.
+
+The idea emerged from observing how document generation platforms use multi-step, quality-gated blueprints: an agent follows a structured recipe of steps, each with evaluation criteria, to produce professional outputs. This pattern is not limited to documents - it applies to code reviews, data analysis, report generation, onboarding workflows, and any multi-step agent task. Pointy Hat generalizes this pattern into a universal, platform-agnostic standard called **Spells**, and defines a standalone CLI distributed as pre-built binaries (not npm - our users are not always developers).
+
+### Design Principles
+1. Spells are for everyone - not just engineers. A marketer, analyst, or designer should be able to cast a spell.
+2. No Node.js required - distributed as standalone binaries (Bun compile / pkg), not via npm.
+3. Bring your own model - users configure their own LLM API key (Anthropic, OpenAI, Google, etc.) and the CLI calls the LLM directly to cast spells. No agent platform required.
+4. Agent platforms are optional - if you have Claude Code or Cursor, pointyhat integrates with them for MCP management. But for casting, an API key alone is sufficient.
+
+### Three-Layer Architecture
+
+  POINTY HAT  (Registry, Spells, Quality, CLI)
+  MCP PROTOCOL (Tools, Resources, Prompts)
+  AGENT PLATFORMS (Claude Code, Cursor, Windsurf, Custom)
+
+
+### Core Vocabulary
+
+Pointy Hat uses a consistent "magic" vocabulary across the entire system. Every concept maps to one term:
+
+  Term              | What It Is
+  ------------------|--------------------------------------------------------------
+  Spell             | An executable multi-step agent workflow (YAML spec)
+  Incantation       | The step-by-step execution instructions within a spell
+  Inputs            | Required inputs a spell needs (data files, context, parameters)
+  Catalysts         | Packaged reference data, templates, and guidelines that ship with a spell — the spell's built-in expertise, invisible to the user
+  Wards             | Quality gates that evaluate step outputs against criteria
+  Casting           | Executing a spell (running all steps with ward checks)
+  Grimoire          | The curated spell catalog / marketplace (pointyhat.org)
+  Spellbook         | A user's local installed collection of spells
+  Spellcrafter      | A spell creator / publisher
+  Coverage Analysis | Pre-cast check: can the agent run this spell given available data and tools?
+
+================================================================================
+
+## 1. Project Structure
+
+TypeScript CLI compiled to standalone binaries via Bun (alias: ph). No runtime dependencies required for end users.
+
+  pointyhat/
+    package.json                    # Dev deps only, not published to npm
+    tsconfig.json
+    vitest.config.ts
+    build.ts                        # Bun compile script for all platforms
+    install.sh                      # curl-to-install script (macOS/Linux)
+    install.ps1                     # PowerShell installer (Windows)
+    src/
+      index.ts                      # CLI entry, commander program setup
+      commands/                     # One file per command group
+        init.ts                     # pointyhat init
+        install.ts                  # pointyhat install/uninstall/update
+        list.ts                     # pointyhat list
+        search.ts                   # pointyhat search
+        info.ts                     # pointyhat info
+        spell/
+          create.ts                 # pointyhat spell create
+          cast.ts                   # pointyhat spell cast
+          validate.ts               # pointyhat spell validate
+          export.ts                 # pointyhat spell export
+          list.ts                   # pointyhat spell list/search/info
+        spellbook/
+          add.ts                    # pointyhat spellbook add/remove/list/sync
+        publish.ts                  # pointyhat publish/unpublish/version
+        config.ts                   # pointyhat config
+        auth.ts                     # pointyhat auth login/logout/status
+        quality/
+          test.ts                   # pointyhat quality test/scan/rate/verify
+        doctor.ts                   # pointyhat doctor
+        completions.ts              # Shell completions
+      core/
+        registry-client.ts          # HTTP client to api.pointyhat.org
+        cache.ts                    # Local caching (~/.pointyhat/cache/)
+        config-manager.ts           # Reads/writes pointyhat.yaml + user config
+        lockfile.ts                 # pointyhat.lock generation and parsing
+        platform-detector.ts        # Detect installed agent platforms
+        platform-writer.ts          # Write MCP configs per platform
+        spell-parser.ts             # Parse and validate spell.yaml (Zod)
+        spell-executor.ts           # The casting engine (two-phase)
+        coverage-analyzer.ts        # Can I run this spell? (pre-cast analysis)
+        mcp-resolver.ts             # Resolve MCP URIs to installable packages
+        llm-client.ts               # Multi-provider LLM client (Anthropic, OpenAI, Google)
+        auth-manager.ts             # Token storage, OAuth flow
+        error-handler.ts            # Consistent error formatting with codes
+      platforms/                    # One adapter per platform
+        base.ts                     # Abstract PlatformAdapter interface
+        claude-desktop.ts
+        claude-code.ts
+        cursor.ts
+        windsurf.ts
+        vscode-continue.ts
+        vscode-copilot.ts
+        custom.ts                   # User-defined platform adapter
+      providers/                    # LLM provider adapters
+        base.ts                     # Abstract LLMProvider interface
+        anthropic.ts                # Claude models (Sonnet, Opus, Haiku)
+        openai.ts                   # GPT-4o, o1, etc.
+        google.ts                   # Gemini models
+        ollama.ts                   # Local models via Ollama
+      types/
+        spell.ts                    # Spell YAML schema types + Zod validators
+        mcp-package.ts              # MCP package metadata types
+        registry.ts                 # API response types
+        config.ts                   # Config file types
+        platform.ts                 # Platform detection types
+        coverage.ts                 # Coverage analysis types
+        quality.ts                  # Quality report types
+        provider.ts                 # LLM provider types
+      ui/
+        spinner.ts                  # Terminal spinner (ora)
+        table.ts                    # Formatted table output (cli-table3)
+        prompt.ts                   # Interactive prompts (inquirer)
+        colors.ts                   # Chalk color helpers
+        progress.ts                 # Progress bars
+        format.ts                   # Output formatting (JSON/table/human)
+      utils/
+        fs.ts                       # File system helpers
+        semver.ts                   # SemVer utilities
+        yaml.ts                     # YAML parse/stringify
+        hash.ts                     # Integrity hashing (SHA-512)
+        network.ts                  # Online/offline detection
+    tests/
+      unit/
+      integration/
+      fixtures/
+        sample-spell.yaml
+        sample-pointyhat.yaml
+
+
+### Key Dependencies
+- commander  - CLI framework (lightweight, good TS types)
+- chalk      - Terminal colors
+- ora        - Spinners
+- inquirer   - Interactive prompts
+- cli-table3 - Formatted tables
+- yaml       - YAML parse/stringify with comment preservation
+- zod        - Runtime validation of spell YAML, configs, API responses
+- jsonc-parser - Parse platform configs (JSONC with comments)
+- semver     - SemVer utilities
+- fast-glob  - File discovery
+- anthropic  - Anthropic Claude API SDK
+- openai     - OpenAI API SDK (also works with compatible endpoints)
+
+
+### Distribution Strategy (Not npm)
+
+Pointy Hat targets all users, not just developers. Distribution via standalone binaries:
+
+Install methods:
+
+  # macOS / Linux
+  curl -fsSL https://pointyhat.org/install | sh
+
+  # Windows (PowerShell)
+  iwr -useb https://pointyhat.org/install.ps1 | iex
+
+  # Homebrew (macOS)
+  brew install pointyhat/tap/pointyhat
+
+  # Manual download
+  # https://github.com/pointyhat/cli/releases -> pointyhat-{os}-{arch}
+
+Build process:
+- Source: TypeScript compiled via Bun
+- Output: standalone single-file binaries for each target:
+  - pointyhat-darwin-arm64 (macOS Apple Silicon)
+  - pointyhat-darwin-x64 (macOS Intel)
+  - pointyhat-linux-x64
+  - pointyhat-linux-arm64
+  - pointyhat-win-x64.exe
+- bun build src/index.ts --compile --target=bun-{platform} for each
+- GitHub Releases for versioned downloads
+- Install scripts download the correct binary to ~/.pointyhat/bin/ and add to PATH
+
+Auto-update:
+- On each run, check for updates (cached, max once per day)
+- pointyhat update --self to update the CLI itself
+- Background download, swap on next run (no interruption)
+
+Why Bun compile:
+- Zero runtime dependencies (no Node.js, no Python, nothing)
+- Single binary, ~30-50MB
+- Fast startup (~50ms vs ~500ms for Node.js)
+- Native fetch, no need for got
+
+================================================================================
+
+## 2. Complete Command Taxonomy
+
+
+### 2.1 Initialization & Configuration
+
+  pointyhat init [--yes] [--platform <p>]
+    First-run onboarding: configure LLM provider (API key), detect platforms,
+    suggest MCPs, create pointyhat.yaml + pointyhat.lock.
+    If no provider configured yet, runs provider setup first.
+
+  pointyhat config set <key> <value>     Set user config value
+  pointyhat config get <key>             Get config value
+  pointyhat config list                  List all config
+  pointyhat config delete <key>          Remove config key
+  pointyhat config reset                 Reset to defaults
+
+  pointyhat auth login [--token <t>]     Authenticate via browser OAuth or token
+  pointyhat auth logout                  Clear stored credentials
+  pointyhat auth status                  Show current auth state
+  pointyhat auth token                   Print current token (for piping to CI)
+
+
+### 2.2 LLM Provider Management
+
+  pointyhat provider setup [--interactive]
+    Interactive setup: pick provider, enter API key, choose default model.
+    Run this first before casting.
+
+  pointyhat provider list                List configured providers and which is active
+  pointyhat provider set <provider> [--api-key <key>] [--model <model>] [--base-url <url>]
+    Configure a provider (anthropic, openai, google, ollama)
+  pointyhat provider use <provider>      Switch the active/default provider
+  pointyhat provider test [provider]     Send test prompt to verify API key works
+
+Example first-run for a non-developer user:
+
+  $ pointyhat provider setup
+    Which LLM provider do you use?
+    > Anthropic (Claude)
+      OpenAI (GPT-4)
+      Google (Gemini)
+      Ollama (local models)
+
+    Enter your Anthropic API key: sk-ant-api03-...
+    Testing connection... Claude Sonnet 4.5 responded in 1.2s
+
+    Provider configured! You can now cast spells.
+    Try: pointyhat spell cast code-review --input-file main.py
+
+
+### 2.3 MCP Management (Phase 1-2)
+
+  pointyhat install <pkg...> [--platform <p>] [--all] [--global] [--env KEY=VAL...]
+    Install MCP server(s). Auto-detects platform, writes config, updates yaml + lock
+
+  pointyhat uninstall <pkg...> [--platform <p>] [--all]
+    Remove MCP server(s) from platform config(s) and project files
+
+  pointyhat update [pkg...] [--all] [--dry-run] [--latest]
+    Update MCP(s) to latest compatible version. --latest ignores semver ranges
+
+  pointyhat list [--platform <p>] [--json] [--outdated]
+    List installed MCPs with version, platform, and update status
+
+  pointyhat search <query> [--type mcp|spell|all] [--category <c>]
+                           [--sort relevance|downloads|rating|newest]
+                           [--limit <n>] [--json]
+    Search registry for MCPs and/or spells
+
+  pointyhat info <package> [--json] [--versions]
+    Detailed info: description, tools provided, compatibility matrix, ratings
+
+Install flow (detailed):
+  1. Resolve package name via registry API
+  2. Download metadata (install instructions per platform)
+  3. Detect target platform(s) or use --platform
+  4. Write platform-specific config (JSON/JSONC/YAML depending on platform)
+  5. Update pointyhat.yaml with dependency + semver range
+  6. Update pointyhat.lock with exact version + integrity hash
+  7. Optional health check (verify MCP server starts)
+
+
+### 2.4 Spell Management (Phase 4)
+
+  pointyhat spell create [name] [--template blank|code-review|data-analysis|report-generation]
+                                [--interactive]
+    Scaffold a new spell.yaml
+
+  pointyhat spell validate [path] [--strict] [--json]
+    Validate spell against schema: syntax, dependency cycles, URI format, gate thresholds
+
+  pointyhat spell cast <spell> [--dry-run] [--verbose]
+                                [--input key=val...] [--input-file <path>]
+                                [--output-dir <dir>] [--provider <p>] [--model <m>]
+                                [--step <id>] [--skip-wards]
+    Execute a spell in standalone mode (see casting engine below).
+    --provider/--model override defaults.
+    For native agent mode, the agent platform calls cast-spell via the
+    pointyhat MCP server directly - no CLI needed.
+
+  pointyhat spell list [--local] [--remote] [--json]
+    List local and/or Grimoire spells
+
+  pointyhat spell search <query> [--category <c>] [--requires-tools <tool>...] [--json]
+    Search Grimoire for spells
+
+  pointyhat spell info <name> [--version <v>] [--json]
+    Detailed spell info: steps, wards, tools, ratings, spellcrafter
+
+  pointyhat spell export <name> [--format yaml|json|prompt] [--output <path>]
+    Export spell. --format prompt degrades to single flat prompt
+
+
+CASTING ENGINE (two-phase execution)
+
+Three casting modes:
+
+  1. STANDALONE MODE (default for CLI):
+     The CLI calls an LLM directly using the user's API key from
+     ~/.pointyhat/config.yaml provider section. The CLI itself is the
+     orchestrator - it sends each step's instruction to the LLM, collects
+     results, evaluates wards, and manages the full execution loop. This is
+     the primary mode for non-developer users. MCP tools referenced by the
+     spell are started as subprocesses by the CLI (same way Claude Desktop
+     launches them).
+
+  2. NATIVE AGENT MODE (via MCP server plugin):
+     Pointyhat runs as an MCP server that agent platforms (Claude Code,
+     Cursor, Cowork, etc.) connect to. The agent platform's own LLM executes
+     the spell - NO external model calls, NO API key needed from the user.
+     The MCP server provides:
+       - get_spell(name, version) tool -> returns the full spell spec
+       - check_coverage(spell_id, context) tool -> coverage analysis
+       - cast-spell prompt -> structured MCP prompt containing the full
+         incantation that the agent's LLM follows
+       - evaluate_ward(step_id, output, criteria) tool -> quality gate check
+
+     In this mode, the agent platform is the brain and pointyhat is the
+     playbook. Claude Code reads the spell, orchestrates execution using its
+     own Claude model, calls the ward evaluation tool after each step, and
+     delivers results. The user just says "cast quarterly-report" and it happens.
+
+  3. FLAT PROMPT MODE (spell export --format prompt):
+     For platforms with no orchestration support, the spell degrades to a
+     single concatenated prompt. Loses quality gates and step dependency
+     guarantees, but the content is preserved. Compatibility fallback.
+
+How native agent mode works in practice (Claude Code example):
+
+  # User installs the pointyhat MCP server
+  pointyhat install @pointyhat/registry
+
+  # In Claude Code, the user says:
+  > Cast the quarterly-report spell on my Q3 data
+
+  # Claude Code's LLM:
+  # 1. Calls get_spell("quarterly-report") -> gets spell YAML
+  # 2. Calls check_coverage("quarterly-report", {files: [...]}) -> coverage OK
+  # 3. Follows step 1 instruction (analyze-data) using its own tools
+  # 4. Calls evaluate_ward("analyze-data", output, criteria) -> pass
+  # 5. Follows step 2 instruction (generate-report)
+  # 6. Calls evaluate_ward("generate-report", output, criteria) -> pass
+  # 7. Delivers outputs
+
+  No pointyhat API key, no external model call. The agent's existing LLM
+  does all the work. Pointyhat just provides the structured spell and
+  quality evaluation.
+
+
+Phase 1 - Coverage Analysis (all modes):
+  - Parse spell YAML
+  - Enumerate required MCP tools from requires.tools
+  - Standalone: check which MCP servers are installed locally and can be started
+  - Native agent: the agent platform's LLM calls check_coverage()
+  - Enumerate required inputs from inputs.required
+  - Match provided inputs to requirements via semantic matching
+  - Calculate coverage score:
+      (matched_required * 3 + matched_optional) / (total_required * 3 + total_optional) * 100
+  - If score below threshold or required items missing: warn and ask to proceed
+  - --dry-run stops here
+
+Phase 2 - Step Execution:
+
+  STANDALONE MODE (CLI orchestrates):
+  - Start required MCP servers as subprocesses (stdio transport)
+  - Topological sort steps by depends_on
+  - For each step:
+    - Build prompt: step instruction + context from previous steps + input data
+    - Call LLM via configured provider (e.g. Anthropic Claude API)
+    - LLM can use MCP tools via tool_use (the CLI acts as the tool-use loop)
+    - After step completes: run ward by asking the LLM to evaluate against criteria
+    - If ward fails and retry_on_failure: retry up to max_retries
+  - Collect outputs, write to --output-dir
+  - Shut down MCP server subprocesses
+
+  NATIVE AGENT MODE (agent platform orchestrates):
+  - The cast-spell MCP prompt delivers the full incantation to the agent's LLM
+  - The LLM follows step instructions using its own tool access
+  - After each step, calls evaluate_ward() MCP tool for quality gate checks
+  - Ward evaluation runs on the pointyhat MCP server side
+  - The agent handles retries and output delivery natively
+
+
+### 2.5 Spellbook Management
+
+  pointyhat spellbook add <spell...> [--version <v>]
+    Add spell(s) to spellbook. Downloads YAML, checks MCP deps, prompts to install missing
+
+  pointyhat spellbook remove <spell...>
+    Remove spell(s) from spellbook
+
+  pointyhat spellbook list [--json] [--verbose]
+    List spellbook contents with MCP dependency health
+
+  pointyhat spellbook sync [--dry-run]
+    Sync spellbook with lockfile (team member runs after git pull)
+
+
+### 2.6 Publishing (Phase 5)
+
+  pointyhat publish [path] [--tag <t>] [--access public|private]
+                          [--dry-run] [--bump major|minor|patch]
+    Publish spell/MCP to Grimoire. Runs validate + scan, bumps version, uploads
+
+  pointyhat unpublish <name> [--version <v>] [--force]
+    Remove published package (warns about dependents)
+
+  pointyhat version [major|minor|patch] [--no-tag]
+    Bump version in spell.yaml following semver
+
+
+### 2.7 Quality (Phase 3)
+
+  pointyhat quality test <package> [--platform <p>] [--timeout <ms>] [--verbose] [--json]
+    Automated test: start MCP, call every tool, verify responses, report coverage + timing
+
+  pointyhat quality scan [path] [--json] [--severity error|warn|info]
+    Security scan: command injection, data exfiltration, hardcoded secrets
+
+  pointyhat quality rate <package> <1-5> [--review "text"]
+    Submit rating/review
+
+  pointyhat quality verify <package> [--json]
+    Check verification status, quality report, compatibility matrix
+
+
+### 2.8 Utility
+
+  pointyhat doctor [--fix] [--json]
+    Diagnose environment: provider config, platforms, config validity,
+    registry connectivity, MCP health, auth
+
+  pointyhat update --self
+    Update the pointyhat CLI itself to latest version
+
+  pointyhat trending [--type mcp|spell|all] [--period day|week|month] [--limit <n>]
+    Show trending packages
+
+  pointyhat categories [--json]
+    List Grimoire categories
+
+  pointyhat completions <bash|zsh|fish|powershell>
+    Output shell completion script
+
+  pointyhat --version    Print CLI version
+  pointyhat --help       Help text
+
+================================================================================
+
+## 3. Configuration Files
+
+
+### 3.1 pointyhat.yaml (Project-Level)
+
+  registry: https://api.pointyhat.org
+
+  platforms:
+    - claude-code
+    - cursor
+
+  mcps:
+    "@mcp/github":
+      version: "^1.2.0"
+      env:
+        GITHUB_TOKEN: "${env:GITHUB_TOKEN}"
+      platforms: [claude-code, cursor]
+    "@mcp/filesystem":
+      version: "^1.0.0"
+      args: ["/home/user/projects"]
+    "@mcp/postgres":
+      version: "~0.9.0"
+      env:
+        DATABASE_URL: "${env:DATABASE_URL}"
+
+  spells:
+    code-review-pro:
+      version: "^1.0.0"
+    quarterly-report:
+      version: "2.1.0"
+
+  defaults:
+    platform: cursor
+    output_format: human
+
+
+### 3.2 pointyhat.lock (Lockfile - deterministic installs)
+
+  lockfileVersion: 1
+  generatedAt: "2026-02-07T10:30:00Z"
+
+  mcps:
+    "@mcp/github":
+      version: "1.2.0"
+      resolved: "npm:@modelcontextprotocol/server-github@1.2.0"
+      integrity: "sha512-abc123..."
+      transport: stdio
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-github"]
+      platforms:
+        claude-code:
+          configPath: "~/.claude.json"
+        cursor:
+          configPath: ".cursor/mcp.json"
+
+  spells:
+    code-review-pro:
+      version: "1.0.0"
+      resolved: "https://api.pointyhat.org/spells/code-review-pro/1.0.0"
+      integrity: "sha512-jkl012..."
+      requiredMcps: ["@mcp/github", "@mcp/filesystem", "@mcp/grep"]
+
+
+### 3.3 ~/.pointyhat/config.yaml (User-Level)
+
+  auth:
+    email: user@example.com
+    method: github-oauth   # Grimoire tokens in OS keychain, not here
+
+  # LLM Provider configuration - REQUIRED for casting spells
+  # Users bring their own API key. This is how pointyhat executes spells.
+  provider:
+    # Active provider (which one to use for casting)
+    default: anthropic
+
+    anthropic:
+      api_key: "${env:ANTHROPIC_API_KEY}"   # Reference env var (recommended)
+      model: claude-sonnet-4-5              # Default model for this provider
+
+    openai:
+      api_key: "${env:OPENAI_API_KEY}"
+      model: gpt-4o
+      # Supports OpenAI-compatible endpoints (Together, Groq, etc.)
+      # base_url: "https://api.together.xyz/v1"
+
+    google:
+      api_key: "${env:GOOGLE_AI_API_KEY}"
+      model: gemini-2.0-flash
+
+    ollama:
+      base_url: "http://localhost:11434"    # Local model, no API key needed
+      model: llama3.1
+
+  registry:
+    url: https://api.pointyhat.org
+    timeout: 30000
+
+  defaults:
+    platform: auto
+    output_format: human
+    confirm_installs: true
+
+  telemetry:
+    enabled: false
+
+  cache:
+    ttl: 3600
+    maxSize: 100  # MB
+    directory: ~/.pointyhat/cache
+
+Provider configuration is the key enabler for standalone casting. A user who
+only has an Anthropic API key and no agent platform installed can:
+  1. pointyhat config set provider.anthropic.api_key sk-ant-... (or set ANTHROPIC_API_KEY env var)
+  2. pointyhat spell cast quarterly-report --input-file data.csv
+  3. The CLI calls Claude directly, executes each step, evaluates wards, writes outputs
+No Claude Code, no Cursor, no agent platform needed.
+
+
+### 3.4 spell.yaml (Spell Definition)
+
+  spell:
+    name: "quarterly-financial-report"
+    version: "2.1.0"
+    description: "Generates a quarterly financial report from raw data"
+    author: "acme-corp"
+    license: "MIT"
+    tags: ["finance", "reports", "data-analysis"]
+
+    card: |
+      ## Quarterly Financial Report Generator
+      Transforms raw financial data into polished executive reports.
+
+    # Ingredients - what the spell needs
+    inputs:
+      required:
+        - id: "financial-data"
+          description: "Financial data with revenue, expenses, and margins"
+          formats: ["csv", "xlsx", "pdf"]
+        - id: "company-info"
+          description: "Company name and reporting period"
+          formats: ["text"]
+      optional:
+        - id: "previous-report"
+          description: "Previous quarter report for comparison"
+          formats: ["pdf", "docx"]
+
+    # Catalysts - packaged reference data that ships with the spell
+    catalysts:
+      - id: "gaap-methods"
+        description: "GAAP revenue recognition calculation rules"
+        uri: "catalyst://quarterly-financial-report/gaap-methods.md"
+        type: "reference"     # reference | template | data
+      - id: "report-template"
+        description: "Executive report formatting and section layout"
+        uri: "catalyst://quarterly-financial-report/template.md"
+        type: "template"
+      - id: "tax-rates-2025"
+        description: "Federal and state corporate tax rate tables"
+        uri: "catalyst://quarterly-financial-report/tax-rates-2025.json"
+        type: "data"
+
+    # MCP dependencies
+    requires:
+      tools:
+        - uri: "mcp://filesystem/read_file"
+          reason: "Read input data files"
+        - uri: "mcp://filesystem/write_file"
+          reason: "Write output documents"
+        - uri: "mcp://data-analysis/analyze_csv"
+          reason: "Extract metrics from CSV data"
+          optional: true
+      resources:
+        - uri: "mcp://filesystem/file://{path}"
+
+    # Incantation - step-by-step execution
+    steps:
+      - id: "analyze-data"
+        instruction: |
+          Extract key financial metrics from the provided data.
+          Use the GAAP calculation methods catalyst for revenue recognition.
+          Focus on revenue, expenses, margins, and QoQ changes.
+        tools_needed: ["filesystem/read_file", "data-analysis/analyze_csv"]
+        inputs_needed: ["financial-data"]
+        catalysts_needed: ["gaap-methods", "tax-rates-2025"]
+        timeout: 120
+
+      - id: "compare-quarters"
+        instruction: |
+          Compare current quarter with previous. Calculate percentage changes.
+          Identify top 3 improvements and top 3 concerns.
+        depends_on: ["analyze-data"]
+        inputs_needed: ["previous-report"]
+        optional: true   # Skip if previous-report not provided
+
+      - id: "generate-report"
+        instruction: |
+          Write comprehensive executive financial report.
+          Use real data from analysis. No placeholders.
+        depends_on: ["analyze-data", "compare-quarters"]
+        tools_needed: ["filesystem/read_file", "filesystem/write_file"]
+        # Ward (quality gate)
+        quality_gate:
+          criteria: |
+            Must include specific numbers, cite sources,
+            have a complete executive summary, and include
+            at least 3 actionable recommendations.
+          min_score: 0.8
+          retry_on_failure: true
+          max_retries: 2
+
+    # Outputs
+    outputs:
+      - id: "report-document"
+        type: "document"
+        format: ["pdf", "docx", "latex"]
+      - id: "metrics-json"
+        type: "data"
+        format: ["json"]
+
+    metadata:
+      min_pointyhat_version: "0.1.0"
+      estimated_duration: "3-5 minutes"
+      category: "finance"
+
+================================================================================
+
+## 4. Platform Detection & Integration
+
+### Platform Config Map
+
+  Platform               | Config Path                                                    | Format | Key
+  -----------------------|----------------------------------------------------------------|--------|------------
+  Claude Desktop (macOS) | ~/Library/Application Support/Claude/claude_desktop_config.json | JSON   | mcpServers
+  Claude Desktop (Win)   | %APPDATA%\Claude\claude_desktop_config.json                    | JSON   | mcpServers
+  Claude Code            | ~/.claude.json or .claude/settings.local.json                  | JSON   | mcpServers
+  Cursor (global)        | ~/.cursor/mcp.json                                             | JSON   | mcpServers
+  Cursor (project)       | .cursor/mcp.json                                               | JSON   | mcpServers
+  Windsurf               | ~/.codeium/windsurf/mcp_config.json                            | JSON   | mcpServers
+  VS Code + Continue     | .continue/mcpServers/*.yaml                                    | YAML   | one per server
+  VS Code + Copilot      | .vscode/mcp.json                                               | JSON   | mcpServers
+
+### Detection Algorithm
+For each platform:
+  1. Resolve expected config path (OS-aware)
+  2. If config exists: parse, validate, report ok
+  3. If no config: check if platform binary exists in PATH or known app locations
+  4. Binary found but no config: report missing-config (can auto-create)
+  5. Nothing found: not-detected
+
+### Write Strategy
+- JSON platforms: read existing file with jsonc-parser (preserves comments),
+  add/update entry under mcpServers, write back
+- YAML platforms (Continue): create one YAML file per server in .continue/mcpServers/
+- Custom platforms: user-defined in ~/.pointyhat/config.yaml
+
+================================================================================
+
+## 5. Architecture Notes
+
+
+### Registry API
+The CLI talks to api.pointyhat.org via REST:
+  GET  /v1/mcps/search?q=...        Search MCPs
+  GET  /v1/mcps/{name}              MCP details
+  GET  /v1/spells/search?q=...      Search spells
+  GET  /v1/spells/{name}/{version}  Fetch spell YAML
+  GET  /v1/spells/{name}/{version}/catalysts/{catalyst-id}  Fetch catalyst content
+  POST /v1/spells                   Publish spell + catalysts (auth required)
+  POST /v1/auth/login               OAuth initiation
+  GET  /v1/trending                 Trending packages
+  GET  /v1/categories               Category list
+
+
+### LLM Client (src/core/llm-client.ts)
+
+The multi-provider LLM client is the core of standalone casting. It abstracts
+over different LLM APIs so spell execution is provider-agnostic.
+
+  interface LLMProvider {
+    id: string;                        // 'anthropic' | 'openai' | 'google' | 'ollama'
+    name: string;                      // Human-readable
+    sendMessage(params: {
+      model: string;
+      systemPrompt: string;
+      messages: Message[];
+      tools?: ToolDefinition[];        // MCP tools converted to provider format
+      maxTokens?: number;
+    }): AsyncGenerator<LLMEvent>;      // Streams: text, tool_use, complete
+    listModels(): Promise<ModelInfo[]>; // For provider test / model selection
+    testConnection(): Promise<boolean>; // Quick health check
+  }
+
+Provider adapters (src/providers/):
+  - anthropic.ts - Uses @anthropic-ai/sdk, supports tool_use natively.
+    This is the reference implementation; build and test this first.
+  - openai.ts - Uses openai SDK, maps MCP tools to OpenAI function calling format.
+  - google.ts - Uses Google AI SDK, maps to Gemini function calling format.
+  - ollama.ts - Uses Ollama REST API (http://localhost:11434), for fully
+    local/offline casting with no API key.
+
+Tool-use loop (the agentic execution core):
+
+  The tool-use loop is the inner engine of standalone casting. It implements the
+  standard agentic pattern used by all LLM tool-calling systems:
+
+  1. Build messages array: system prompt (step instruction + context from prior
+     steps) + user message (input data). Attach available MCP tools converted to
+     the provider's tool format (e.g. Anthropic tool_use schema, OpenAI functions).
+  2. Call the LLM API (e.g. anthropic.messages.create with tools parameter).
+  3. Parse the response. The LLM may return:
+     a. text content -> accumulate as step output
+     b. tool_use block -> extract tool name + input JSON, execute the MCP tool
+        via the running subprocess (stdio transport, JSON-RPC), collect the result
+     c. end_turn stop reason -> step is complete, exit loop
+  4. If tool_use: append the tool result as a tool_result message, go to step 2.
+  5. Repeat until end_turn or max_iterations reached (default 25 iterations per step).
+  6. If max_iterations hit without end_turn, log warning and treat accumulated
+     output as the step result.
+
+  Pseudocode:
+
+    async function executeStep(step, context, tools, provider):
+      messages = buildMessages(step.instruction, context, step.inputs)
+      iterations = 0
+      output = ""
+
+      while iterations < MAX_ITERATIONS:
+        response = await provider.sendMessage({ messages, tools })
+
+        for block in response.content:
+          if block.type == "text":
+            output += block.text
+          if block.type == "tool_use":
+            result = await mcpServer.callTool(block.name, block.input)
+            messages.push({ role: "assistant", content: [block] })
+            messages.push({ role: "user", content: [{ type: "tool_result", tool_use_id: block.id, content: result }] })
+
+        if response.stop_reason == "end_turn":
+          break
+        iterations++
+
+      return output
+
+
+### Registry as MCP Server (Native Agent Mode)
+
+The pointyhat registry is itself an MCP server (@pointyhat/registry). This is
+the zero-integration path for agent platforms like Claude Code, Cursor, and Cowork.
+
+MCP Server Surface:
+
+  Tools:
+    search_spells(query, tags)              -> discovery
+    search_mcps(query, category)            -> MCP discovery
+    get_spell(name, version)                -> full spell YAML
+    check_coverage(spell_id, context)       -> coverage analysis
+    evaluate_ward(step_id, output, criteria) -> quality gate check
+    install_mcp(name, platform)             -> trigger MCP install
+
+  Prompts:
+    cast-spell(name, inputs)                -> structured incantation prompt
+
+  Resources:
+    spell://quarterly-report/2.1.0          -> spell spec as resource
+    spell://code-review/1.0.0              -> spell spec as resource
+
+When an agent platform connects:
+  1. The agent's LLM can browse and discover spells via search_spells
+  2. Fetch full spell specs via get_spell or read spell:// resources
+  3. Run coverage analysis via check_coverage
+  4. Execute spells by following the cast-spell prompt
+  5. Validate step outputs via evaluate_ward
+
+A Claude Code/Cowork user installs @pointyhat/registry once, and can then cast
+any spell from the Grimoire using natural language, powered by the agent's own
+model. No pointyhat API key, no separate LLM calls.
+
+
+### Caching
+- HTTP cache: built-in fetch cache, respects Cache-Control/ETag, TTL configurable (default 1h)
+- Package cache: ~/.pointyhat/cache/spells/{name}/{version}/spell.yaml, integrity via SHA-512
+- Config backups: before writing platform configs, snapshot existing for doctor --fix recovery
+
+
+### Offline Mode
+  Works offline:  list, config, doctor (partial), spell validate, spell create
+  Needs network:  install, search, publish, update, spell cast (first time)
+
+
+### Auth Flow
+  1. pointyhat auth login starts local HTTP server on random port
+  2. Opens browser to pointyhat.org/auth?redirect=http://localhost:{port}/callback
+  3. User authenticates via GitHub/Google OAuth
+  4. Callback receives code, exchanges for access + refresh tokens
+  5. Tokens stored in OS keychain, only email in config file
+  6. Token auto-refresh before authenticated requests
+
+
+### Doctor Checks
+pointyhat doctor validates:
+  1. Provider: Is an LLM provider configured? Does the API key work?
+  2. Platforms: Are agent platforms detected? Are their configs valid?
+  3. MCPs: Are installed MCP servers startable?
+  4. Registry: Is api.pointyhat.org reachable?
+  5. Config files: Are pointyhat.yaml and lock valid?
+  6. Auth: Is Grimoire auth valid (for publishing)?
+  7. CLI version: Is the CLI up to date?
+
+
+### Error Codes
+All errors follow E_{DOMAIN}_{TYPE} pattern with human-readable message + suggestions:
+  - E_PROVIDER_NOT_CONFIGURED  No LLM provider set up (run pointyhat provider setup)
+  - E_PROVIDER_AUTH_FAILED     API key invalid or expired
+  - E_PROVIDER_RATE_LIMITED    LLM provider rate limit hit
+  - E_REGISTRY_UNREACHABLE     Cannot reach api.pointyhat.org
+  - E_AUTH_EXPIRED             Grimoire auth expired
+  - E_SPELL_INVALID            Spell YAML validation failed
+  - E_PLATFORM_NOT_DETECTED    No agent platform found
+  - E_MCP_NOT_FOUND            MCP package not in registry
+  - E_COVERAGE_INSUFFICIENT    Not enough inputs/tools to cast
+  - E_WARD_FAILED              Quality gate check failed
+  - E_CONFIG_MALFORMED         Config file syntax error
+
+================================================================================
+
+## 6. Implementation Reference (Self-Contained Patterns)
+
+This section provides all the algorithms, types, and patterns needed to build the
+casting engine, coverage analyzer, publishing system, and core types. Everything
+is described inline - no external references required.
+
+
+### 6.1 Coverage Analysis Algorithm
+
+Coverage analysis answers: "Can the agent execute this spell given the available
+tools and inputs?" It runs before any step execution (Phase 1 of casting).
+
+  TypeScript types:
+
+    interface CoverageItem {
+      id: string;                    // e.g. "financial-data" or "filesystem/read_file"
+      type: "input" | "tool";        // What kind of requirement
+      requirement: string;           // Human-readable description from spell YAML
+      status: "matched" | "missing" | "partial";
+      matchedTo?: string;            // What satisfied it (file path, tool name, etc.)
+      confidence: number;            // 0.0 - 1.0 for semantic matches
+      required: boolean;             // From spell's required vs optional
+    }
+
+    interface CoverageResult {
+      spellName: string;
+      spellVersion: string;
+      score: number;                 // 0-100 percentage
+      canCast: boolean;              // true if all required items matched
+      items: CoverageItem[];         // Detailed per-item breakdown
+      missingRequired: CoverageItem[];   // Shortcut: items where required && missing
+      missingOptional: CoverageItem[];   // Shortcut: items where !required && missing
+      warnings: string[];            // e.g. "Tool X is optional but would improve results"
+    }
+
+  Algorithm:
+
+    function analyzeCoverage(spell, availableTools, providedInputs): CoverageResult {
+      items = []
+
+      // 1. Check tool requirements
+      for toolReq in spell.requires.tools:
+        toolName = parseToolUri(toolReq.uri)  // "mcp://filesystem/read_file" -> "filesystem/read_file"
+        if availableTools.has(toolName):
+          items.push({ ...toolReq, status: "matched", matchedTo: toolName })
+        else:
+          items.push({ ...toolReq, status: "missing", required: !toolReq.optional })
+
+      // 2. Check input requirements
+      for inputReq in spell.inputs.required:
+        match = findBestInputMatch(inputReq, providedInputs)  // semantic matching
+        if match && match.confidence > 0.6:
+          items.push({ ...inputReq, status: "matched", matchedTo: match.path, confidence: match.confidence })
+        else:
+          items.push({ ...inputReq, status: "missing", required: true })
+
+      for inputReq in spell.inputs.optional:
+        match = findBestInputMatch(inputReq, providedInputs)
+        status = match ? "matched" : "missing"
+        items.push({ ...inputReq, status, required: false, matchedTo: match?.path })
+
+      // 3. Calculate score (required items weighted 3x)
+      matchedRequired = items.filter(i => i.required && i.status == "matched").length
+      totalRequired = items.filter(i => i.required).length
+      matchedOptional = items.filter(i => !i.required && i.status == "matched").length
+      totalOptional = items.filter(i => !i.required).length
+
+      score = totalRequired + totalOptional > 0
+        ? (matchedRequired * 3 + matchedOptional) / (totalRequired * 3 + totalOptional) * 100
+        : 100
+
+      canCast = items.filter(i => i.required && i.status == "missing").length == 0
+
+      return { score, canCast, items, ... }
+    }
+
+  Input matching uses semantic similarity: compare the input requirement's
+  description against the filename, file extension, and (optionally) first few
+  lines of each provided file. For simple cases, format matching (e.g. requirement
+  says "csv" and file is .csv) is sufficient. For richer matching, send both
+  descriptions to the LLM and ask "Does this input satisfy this requirement? Reply
+  with a confidence score 0-1."
+
+
+### 6.2 Two-Phase Casting Engine (Detailed)
+
+The casting engine is the core of Pointy Hat. It executes spells in two phases.
+
+  Phase 1 - Coverage Analysis:
+    (See 6.1 above)
+    If --dry-run flag is set, stop here and report coverage.
+    If canCast is false, warn user and ask whether to proceed anyway.
+
+  Phase 2 - Step Execution:
+
+    function castSpell(spell, inputs, provider, outputDir):
+      // 1. Start MCP servers referenced by the spell as subprocesses
+      mcpServers = {}
+      for toolReq in spell.requires.tools:
+        serverName = toolReq.uri.split("/")[2]  // "mcp://filesystem/read_file" -> "filesystem"
+        if serverName not in mcpServers:
+          mcpServers[serverName] = startMcpServer(serverName)  // stdio subprocess
+
+      // 2. Topological sort steps by depends_on
+      sortedSteps = topologicalSort(spell.steps)
+      // Detect circular dependencies during sort - fail with E_SPELL_INVALID
+
+      // 3. Execute each step
+      stepResults = {}  // Map<stepId, string>
+      for step in sortedSteps:
+        // Skip optional steps whose required inputs are missing
+        if step.optional && !allInputsAvailable(step.inputs_needed, inputs):
+          stepResults[step.id] = null
+          continue
+
+        // Build context from prior step results
+        context = buildStepContext(step, stepResults)
+
+        // Execute the step via tool-use loop (see Section 5, LLM Client)
+        output = await executeStep(step, context, mcpServers, provider)
+        stepResults[step.id] = output
+
+        // 4. Evaluate ward (quality gate) if defined
+        if step.quality_gate:
+          wardResult = await evaluateWard(output, step.quality_gate, provider)
+          if wardResult.score < step.quality_gate.min_score:
+            if step.quality_gate.retry_on_failure:
+              for attempt in range(step.quality_gate.max_retries):
+                output = await executeStep(step, context + wardFeedback, mcpServers, provider)
+                wardResult = await evaluateWard(output, step.quality_gate, provider)
+                if wardResult.score >= step.quality_gate.min_score:
+                  break
+            if wardResult.score < step.quality_gate.min_score:
+              throw E_WARD_FAILED(step.id, wardResult)
+          stepResults[step.id] = output
+
+      // 5. Collect and write outputs
+      writeOutputs(spell.outputs, stepResults, outputDir)
+
+      // 6. Shut down MCP servers
+      for server in mcpServers.values():
+        server.kill()
+
+  Ward evaluation:
+
+    function evaluateWard(output, qualityGate, provider):
+      // Send the output + criteria to the LLM and ask it to score
+      prompt = `Evaluate the following output against these quality criteria.
+        Score from 0.0 to 1.0. Explain any deficiencies.
+
+        CRITERIA:
+        ${qualityGate.criteria}
+
+        OUTPUT TO EVALUATE:
+        ${output}
+
+        Respond with JSON: { "score": 0.0-1.0, "passed": bool, "feedback": "..." }`
+
+      response = await provider.sendMessage({ messages: [{ role: "user", content: prompt }] })
+      return parseJSON(response)
+
+  Building step context:
+
+    function buildStepContext(step, stepResults, catalysts):
+      // Gather outputs from steps this step depends on
+      context = ""
+      for depId in step.depends_on:
+        if stepResults[depId]:
+          context += `\n--- Output from step "${depId}" ---\n${stepResults[depId]}\n`
+
+      // Inject catalysts the step needs (fetched from registry / local cache)
+      for catId in (step.catalysts_needed || []):
+        catalyst = catalysts[catId]
+        if catalyst:
+          context += `\n--- Catalyst "${catId}": ${catalyst.description} ---\n${catalyst.content}\n`
+
+      return context
+
+
+### 6.3 Core Types
+
+These types define the data structures used across the system. Implement as Zod
+schemas for runtime validation (spell YAML parsing, API responses, config files).
+
+  // Semantic versioning
+  interface SemVer {
+    major: number;
+    minor: number;
+    patch: number;
+    prerelease?: string;    // e.g. "beta.1"
+  }
+
+  function parseSemVer(version: string): SemVer
+  function formatSemVer(v: SemVer): string           // "2.1.0"
+  function bumpVersion(v: SemVer, level: "major" | "minor" | "patch"): SemVer
+  function satisfiesRange(version: SemVer, range: string): boolean  // "^2.1.0" etc.
+
+  // Spell definition (mirrors spell.yaml structure)
+  interface SpellDefinition {
+    name: string;
+    version: string;
+    description: string;
+    author: string;
+    license?: string;
+    tags: string[];
+    card?: string;                  // Markdown presentation card
+    inputs: {
+      required: SpellInput[];
+      optional: SpellInput[];
+    };
+    catalysts?: SpellCatalyst[];    // Packaged reference data, templates, guidelines
+    requires: {
+      tools: ToolRequirement[];
+      resources?: ResourceRequirement[];
+    };
+    steps: SpellStep[];
+    outputs: SpellOutput[];
+    metadata: SpellMetadata;
+  }
+
+  interface SpellInput {
+    id: string;
+    description: string;
+    formats: string[];              // ["csv", "xlsx", "pdf"]
+  }
+
+  // Catalyst - packaged reference data that ships with the spell
+  interface SpellCatalyst {
+    id: string;                     // e.g. "gaap-methods"
+    description: string;            // Human-readable purpose
+    uri: string;                    // "catalyst://spell-name/filename" - resolves to hosted copy
+    type: "reference" | "template" | "data";  // Semantic category
+  }
+
+  interface ToolRequirement {
+    uri: string;                    // "mcp://server/tool_name"
+    reason?: string;
+    optional?: boolean;
+  }
+
+  interface SpellStep {
+    id: string;
+    instruction: string;            // The prompt for this step
+    depends_on?: string[];          // Step IDs this step requires
+    tools_needed?: string[];
+    inputs_needed?: string[];
+    catalysts_needed?: string[];    // Catalyst IDs this step consumes
+    optional?: boolean;             // Skip if inputs unavailable
+    timeout?: number;               // Seconds
+    quality_gate?: QualityGate;
+  }
+
+  interface QualityGate {
+    criteria: string;               // What to evaluate against
+    min_score: number;              // 0.0 - 1.0
+    retry_on_failure?: boolean;
+    max_retries?: number;           // Default 2
+  }
+
+  interface SpellOutput {
+    id: string;
+    type: "document" | "data" | "code" | "image";
+    format: string[];               // ["pdf", "docx", "json"]
+  }
+
+  interface SpellMetadata {
+    min_pointyhat_version?: string;
+    estimated_duration?: string;
+    category?: string;
+  }
+
+  // Progress reporting (for UI during casting)
+  interface CastingProgress {
+    spellName: string;
+    currentStep: string;            // Step ID
+    currentStepIndex: number;
+    totalSteps: number;
+    status: "analyzing" | "casting" | "evaluating_ward" | "retrying" | "complete" | "failed";
+    stepResults: Map<string, StepResult>;
+    startedAt: Date;
+    elapsedMs: number;
+  }
+
+  interface StepResult {
+    stepId: string;
+    output: string;
+    wardScore?: number;
+    wardPassed?: boolean;
+    wardFeedback?: string;
+    retryCount: number;
+    durationMs: number;
+  }
+
+  // Publishing types
+  interface PublishMetadata {
+    name: string;
+    version: string;
+    description: string;
+    author: string;
+    license: string;
+    tags: string[];
+    card: string;                   // Rendered markdown for Grimoire listing
+    access: "public" | "private";
+    integrity: string;              // SHA-512 hash of spell YAML
+    publishedAt: string;            // ISO 8601
+    requiredMcps: string[];         // MCP packages this spell depends on
+    downloads?: number;
+    rating?: number;
+  }
+
+  // Publish flow:
+  //   1. Read and validate spell.yaml (Zod schema)
+  //   2. If --bump flag: increment version in spell.yaml
+  //   3. Run quality scan (pointyhat quality scan)
+  //   4. Resolve and bundle catalysts: read local files referenced by catalyst URIs,
+  //      compute SHA-512 integrity hash for each, package as a catalyst bundle
+  //   5. Compute SHA-512 integrity hash of spell YAML
+  //   6. Build presentation card from spell.card field
+  //   7. Sanitize metadata (strip local paths, resolve env vars)
+  //   8. POST to /v1/spells with auth token (spell YAML + catalyst bundle)
+  //   9. Registry validates, stores catalyst files, indexes for search
+
+
+### 6.4 MCP Server Subprocess Management
+
+Spells reference MCP tools by URI (e.g. mcp://filesystem/read_file). In standalone
+casting mode, the CLI must start these MCP servers as local subprocesses.
+
+  How to start an MCP server:
+    1. Look up the MCP package in pointyhat.lock for the resolved command + args
+       Example: { command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"] }
+    2. Spawn the process with stdio transport (stdin/stdout for JSON-RPC)
+    3. Send the MCP "initialize" handshake
+    4. List available tools via "tools/list" to verify the tools the spell needs exist
+    5. The tool-use loop calls tools via "tools/call" JSON-RPC messages
+
+  JSON-RPC over stdio protocol:
+    - Each message is a JSON object on a single line, terminated by newline
+    - Request:  { "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": "read_file", "arguments": { "path": "/data.csv" } } }
+    - Response: { "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": "..." }] } }
+
+  MCP tool to LLM tool conversion:
+    Each LLM provider expects tools in a different format. The LLM client must
+    convert MCP tool definitions to the provider's native format:
+
+    - Anthropic: { name, description, input_schema } (JSON Schema)
+    - OpenAI:    { type: "function", function: { name, description, parameters } }
+    - Google:    { functionDeclarations: [{ name, description, parameters }] }
+    - Ollama:    Same as OpenAI function calling format
+
+
+### 6.5 Topological Sort for Step Dependencies
+
+Steps in a spell may have depends_on arrays. Execute in dependency order.
+
+  function topologicalSort(steps: SpellStep[]): SpellStep[] {
+    // Kahn's algorithm
+    inDegree = new Map<string, number>()
+    adjacency = new Map<string, string[]>()
+    stepMap = new Map<string, SpellStep>()
+
+    for step in steps:
+      stepMap.set(step.id, step)
+      inDegree.set(step.id, 0)
+      adjacency.set(step.id, [])
+
+    for step in steps:
+      for dep in (step.depends_on || []):
+        if !stepMap.has(dep):
+          throw E_SPELL_INVALID("Step ${step.id} depends on unknown step ${dep}")
+        adjacency.get(dep).push(step.id)
+        inDegree.set(step.id, inDegree.get(step.id) + 1)
+
+    queue = steps.filter(s => inDegree.get(s.id) == 0).map(s => s.id)
+    result = []
+
+    while queue.length > 0:
+      current = queue.shift()
+      result.push(stepMap.get(current))
+      for neighbor in adjacency.get(current):
+        inDegree.set(neighbor, inDegree.get(neighbor) - 1)
+        if inDegree.get(neighbor) == 0:
+          queue.push(neighbor)
+
+    if result.length != steps.length:
+      throw E_SPELL_INVALID("Circular dependency detected in spell steps")
+
+    return result
+  }
+
+================================================================================
+
+## 7. Implementation Phases
+
+Phase 0 (Immediate): Project Setup
+  - Save this full design document to pointyhat-design.txt in the project root
+  - Configure .claude/settings.local.json with permissions
+  - Initialize the project directory structure
+
+Phase 1 (Weeks 1-4): Foundation + Standalone Casting
+  - Project scaffolding (TypeScript, Bun compile, vitest, CI/CD)
+  - Binary distribution: build scripts, install.sh/ps1, GitHub Releases
+  - init, config, doctor
+  - provider setup/set/test - LLM provider configuration (critical path)
+  - Multi-provider LLM client (Anthropic first, then OpenAI/Google/Ollama)
+  - Spell YAML parser + Zod schema validation
+  - spell create, spell validate
+  - Casting engine standalone mode - the core value prop
+  - Platform detection (for MCP server management)
+
+Phase 2 (Weeks 2-6): MCP Registry + Installation
+  - Registry client with caching
+  - search, info (read-only registry)
+  - install, uninstall, update, list
+  - Platform writers for all platforms
+  - Lockfile generation and parsing
+  - auth (Grimoire authentication)
+  - completions
+
+Phase 3 (Weeks 4-8): Quality Layer
+  - quality test, quality scan, quality rate, quality verify
+  - trending, categories
+  - Verified badge system
+
+Phase 4 (Weeks 6-12): Spellbook + Advanced Casting
+  - Coverage analyzer (see Section 6.1 for algorithm)
+  - spellbook add/remove/list/sync
+  - spell export (including graceful degradation to flat prompt)
+  - Delegated casting mode (via agent platforms)
+  - Ward evaluation improvements
+
+Phase 5 (Week 8+): Publishing, Catalysts & Marketplace
+  - publish, unpublish, version
+  - Presentation card generation
+  - Registry MCP server package (@pointyhat/registry)
+  - Self-update mechanism (update --self)
+  - Catalysts system:
+    - SpellCatalyst Zod schema (id, description, uri, type) in types/spell.ts
+    - catalysts_needed field on SpellStep schema
+    - catalyst:// URI scheme: resolves to hosted files in the Grimoire registry
+    - Catalyst storage in registry (uploaded alongside spell YAML at publish time)
+    - Catalyst fetching + caching in the casting engine (resolved before step execution)
+    - Catalyst injection into step context (buildStepContext reads catalyst content)
+    - Catalyst integrity verification (SHA-512 hashes in lockfile, same as spell YAML)
+    - Catalyst types: reference (calculation methods, standards), template (document
+      structures, layouts), data (JSON/CSV lookup tables, benchmark datasets)
+    - publish command: bundles catalyst files from local directory, uploads to registry
+    - spell validate: verifies catalyst URIs resolve, checks for missing catalysts
+    - Coverage analysis: reports catalyst availability alongside tool/input coverage
+    - Website: SpellDetailPage shows catalyst list (descriptions only, not content)
+
+================================================================================
+
+## 8. Verification Plan
+
+### Unit Tests
+  - Spell YAML parser: validate correct/malformed specs, circular dependency detection, catalyst URIs
+  - Catalyst resolver: fetch from registry, cache locally, verify integrity hashes
+  - LLM client: mock each provider adapter, verify tool-use loop correctness
+  - Platform detector: mock filesystem for each platform config path
+  - Platform writer: verify generated JSON/YAML matches expected format per platform
+  - Coverage analyzer: test scoring formula with various input combinations
+  - Config manager: read/write/merge of all config file types, ${env:VAR} substitution
+  - Lockfile: generation, parsing, integrity verification
+
+### Integration Tests
+  - pointyhat provider setup + provider test: verify API key validation
+  - pointyhat init in a fresh directory: verify pointyhat.yaml + pointyhat.lock created
+  - pointyhat install @mcp/test against mock registry: verify platform config written
+  - pointyhat spell validate against fixture spells: verify pass/fail correctly
+  - pointyhat spell cast --dry-run against fixture spell: verify coverage analysis output
+  - pointyhat spell cast with a simple spell: verify full standalone casting
+  - pointyhat doctor in various environment states: verify detection accuracy
+
+### E2E Tests
+  - Non-developer user flow: install binary -> provider setup -> spell cast
+    (with only an API key, no MCP, no agent platform)
+  - Developer flow: init -> install -> spell create -> spell validate -> spell cast
+  - Multi-platform: install same MCP to 2+ platforms simultaneously
+  - Multi-provider: cast same spell with Anthropic vs OpenAI, verify both complete
+  - Team flow: one user creates pointyhat.lock, another runs spellbook sync

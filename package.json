@@ -1,0 +1,44 @@
+{
+  "name": "pointyhat",
+  "version": "0.1.0",
+  "description": "Declarative, agent-agnostic AI workflow automation. Define multi-step spells in YAML with quality gates, bundled reference data, and one-command execution across any LLM provider.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Maelhann/pointy-hat.git"
+  },
+  "type": "module",
+  "bin": {
+    "pointyhat": "src/index.ts",
+    "ph": "src/index.ts"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "bun run build.ts",
+    "test": "vitest run",
+    "test:watch": "vitest --watch",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@google/generative-ai": "^0.24.0",
+    "@inquirer/prompts": "^7.0.0",
+    "chalk": "^5.4.0",
+    "cli-table3": "^0.6.5",
+    "commander": "^13.0.0",
+    "fast-glob": "^3.3.0",
+    "jsonc-parser": "^3.3.0",
+    "openai": "^4.80.0",
+    "ora": "^8.0.0",
+    "semver": "^7.6.0",
+    "yaml": "^2.6.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/semver": "^7.5.0",
+    "bun-types": "^1.1.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

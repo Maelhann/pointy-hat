@@ -1,0 +1,139 @@
+spell:
+  name: quarterly-financial-report
+  version: "2.1.0"
+  description: Generates a quarterly financial report from raw data
+  author: acme-corp
+  license: MIT
+  tags:
+    - finance
+    - reports
+    - data-analysis
+
+  card: |
+    ## Quarterly Financial Report Generator
+    Transforms raw financial data into polished executive reports.
+
+  inputs:
+    required:
+      - id: financial-data
+        description: Financial data with revenue, expenses, and margins
+        formats:
+          - csv
+          - xlsx
+          - pdf
+      - id: company-info
+        description: Company name and reporting period
+        formats:
+          - text
+    optional:
+      - id: previous-report
+        description: Previous quarter report for comparison
+        formats:
+          - pdf
+          - docx
+
+  catalysts:
+    - id: gaap-methods
+      description: GAAP revenue recognition calculation rules
+      uri: "catalyst://quarterly-financial-report/gaap-methods.md"
+      type: reference
+    - id: report-template
+      description: Executive report formatting and section layout
+      uri: "catalyst://quarterly-financial-report/template.md"
+      type: template
+
+  requires:
+    tools:
+      - uri: "mcp://filesystem/read_file"
+        reason: Read input data files
+      - uri: "mcp://filesystem/write_file"
+        reason: Write output documents
+      - uri: "mcp://data-analysis/analyze_csv"
+        reason: Extract metrics from CSV data
+        optional: true
+    resources:
+      - uri: "mcp://filesystem/file://{path}"
+
+  outputs:
+    - id: report-document
+      type: document
+      format:
+        - pdf
+        - docx
+        - latex
+      description: Executive quarterly financial report with analysis and recommendations
+      acceptance_criteria: |
+        Must include specific numbers, cite sources,
+        have a complete executive summary, and include
+        at least 3 actionable recommendations.
+      inputs_needed:
+        - financial-data
+        - company-info
+      catalysts_needed:
+        - report-template
+      quality_check:
+        criteria: |
+          Report includes specific financial figures from the data,
+          an executive summary, and at least 3 actionable recommendations.
+        min_score: 0.8
+        retry_on_failure: true
+        max_retries: 2
+    - id: metrics-json
+      type: data
+      format:
+        - json
+      description: Extracted financial metrics in structured JSON format
+      depends_on:
+        - report-document
+
+  effects:
+    - id: data-archived
+      type: archival
+      description: Raw financial data archived after report generation
+      verification: Archive record exists and data integrity hash matches
+    - id: stakeholders-notified
+      type: notification
+      description: Key stakeholders notified that the report is ready
+      depends_on:
+        - report-document
+
+  steps:
+    - id: analyze-data
+      instruction: |
+        Extract key financial metrics from the provided data.
+        Use the GAAP calculation methods catalyst for revenue recognition.
+        Focus on revenue, expenses, margins, and QoQ changes.
+      tools_needed:
+        - filesystem/read_file
+        - data-analysis/analyze_csv
+      inputs_needed:
+        - financial-data
+      catalysts_needed:
+        - gaap-methods
+      timeout: 120
+
+    - id: compare-quarters
+      instruction: |
+        Compare current quarter with previous. Calculate percentage changes.
+        Identify top 3 improvements and top 3 concerns.
+      depends_on:
+        - analyze-data
+      inputs_needed:
+        - previous-report
+      optional: true
+
+    - id: generate-report
+      instruction: |
+        Write comprehensive executive financial report.
+        Use real data from analysis. No placeholders.
+      depends_on:
+        - analyze-data
+        - compare-quarters
+      tools_needed:
+        - filesystem/read_file
+        - filesystem/write_file
+
+  metadata:
+    min_pointyhat_version: "0.1.0"
+    estimated_duration: 3-5 minutes
+    category: finance

@@ -1,0 +1,34 @@
+# This spell has intentional errors for testing validation
+
+spell:
+  name: broken-spell
+  version: "1.0.0"
+  description: A spell with many issues
+  author: test
+
+  inputs:
+    required: []
+    optional: []
+
+  requires:
+    tools:
+      - uri: "not-a-valid-uri"
+        reason: "This URI is wrong"
+    resources: []
+
+  steps:
+    - id: step-a
+      instruction: "Do something"
+      depends_on:
+        - step-b
+
+    - id: step-b
+      instruction: "Do something else"
+      depends_on:
+        - step-a
+
+    - id: step-a
+      instruction: "Duplicate step ID"
+
+  outputs: []
+  metadata: {}
