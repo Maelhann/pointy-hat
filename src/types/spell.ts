@@ -30,6 +30,20 @@ export const QualityCheckSchema = z.object({
 });
 export type QualityCheck = z.infer<typeof QualityCheckSchema>;
 
+// Ward — extends quality check with deterministic verification options
+export const WardSchema = QualityCheckSchema.extend({
+  /** Shell command that must exit 0 to pass */
+  verify_command: z.string().optional(),
+  /** File paths that must exist */
+  verify_file_exists: z.array(z.string()).optional(),
+  /** Regex pattern the output must match */
+  verify_pattern: z.string().optional(),
+});
+export type Ward = z.infer<typeof WardSchema>;
+
+/** Accept both `quality_check` and `ward` keys, mapping to the same schema */
+const QualityOrWardSchema = z.union([QualityCheckSchema, WardSchema]).optional();
+
 // Artifact template URI — points to a single self-contained template file
 // The template contains @begin:ID / @end:ID markers with inline prompts and quality checks
 export const ArtifactTemplateSchema = z.string(); // "artifact://spell-name/filename"
@@ -55,7 +69,11 @@ export const SpellStepSchema = z.object({
   optional: z.boolean().default(false),
   timeout: z.number().optional(), // seconds
   quality_check: QualityCheckSchema.optional(),
-});
+  ward: WardSchema.optional(),
+}).transform((step) => ({
+  ...step,
+  quality_check: step.quality_check ?? step.ward,
+}));
 export type SpellStep = z.infer<typeof SpellStepSchema>;
 
 // Spell output — first-class outcome declaration
@@ -69,8 +87,12 @@ export const SpellOutputSchema = z.object({
   inputs_needed: z.array(z.string()).optional(),
   catalysts_needed: z.array(z.string()).optional(),
   quality_check: QualityCheckSchema.optional(),
+  ward: WardSchema.optional(),
   artifact: ArtifactTemplateSchema.optional(),
-});
+}).transform((output) => ({
+  ...output,
+  quality_check: output.quality_check ?? output.ward,
+}));
 export type SpellOutput = z.infer<typeof SpellOutputSchema>;
 
 // Spell effect — postcondition / state change
@@ -83,7 +105,11 @@ export const SpellEffectSchema = z.object({
   inputs_needed: z.array(z.string()).optional(),
   catalysts_needed: z.array(z.string()).optional(),
   quality_check: QualityCheckSchema.optional(),
-});
+  ward: WardSchema.optional(),
+}).transform((effect) => ({
+  ...effect,
+  quality_check: effect.quality_check ?? effect.ward,
+}));
 export type SpellEffect = z.infer<typeof SpellEffectSchema>;
 
 // Spell metadata

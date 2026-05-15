@@ -754,7 +754,7 @@ export function generateCastPrompt(
   lines.push("");
   lines.push("## Contract");
   lines.push("");
-  lines.push("You are casting this spell. A spell is a declarative contract — it specifies WHAT must be produced, not HOW. Your job is to satisfy the contract by producing the declared outputs and achieving the declared effects, meeting all quality standards.");
+  lines.push("You are an autonomous agent casting this spell. A spell is a declarative contract — it specifies WHAT must be produced, not HOW. Your job is to satisfy the contract by producing the declared outputs and achieving the declared effects. Work autonomously until all outcomes are met.");
   lines.push("");
   lines.push(spell.description);
   lines.push("");
@@ -849,7 +849,7 @@ export function generateCastPrompt(
   if (sortedSteps.length > 0) {
     lines.push("## Guidance Steps");
     lines.push("");
-    lines.push("Execute these steps in order. Each step builds on the previous.");
+    lines.push("The spell author suggests these steps. Treat them as guidance — you may adapt, reorder, or skip steps as long as the outcomes are achieved.");
     lines.push("");
 
     for (let i = 0; i < sortedSteps.length; i++) {
@@ -887,7 +887,7 @@ export function generateCastPrompt(
   } else {
     lines.push("## Execution");
     lines.push("");
-    lines.push("No specific steps are prescribed. Plan your own execution to produce the required outputs and achieve the listed effects. Use available tools and inputs as needed.");
+    lines.push("No specific steps are prescribed. Plan your own approach to produce the required outputs and achieve the listed effects. Work autonomously using available tools and inputs.");
     lines.push("");
   }
 

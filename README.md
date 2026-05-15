@@ -1,12 +1,12 @@
 # Pointy Hat
 
-Declarative, agent-agnostic AI workflow automation. Define multi-step **Spells** in YAML with built-in quality gates, bundled reference data, and one-command execution across any LLM provider.
+Declarative, agent-agnostic AI workflow automation. Define multi-step **Spells** in YAML with built-in wards (quality gates), bundled reference data, and one-command execution via any agent runtime.
 
 ```
-pointyhat spell cast code-review --input-file main.py
+pointyhat cast code-review --input-file main.py
 ```
 
-Pointy Hat turns "I have AI tools" into "I get things done" — structured, repeatable, quality-checked outcomes without prompt engineering.
+Pointy Hat turns "I have AI tools" into "I get things done" — structured, repeatable, ward-verified outcomes without prompt engineering.
 
 ---
 
@@ -57,23 +57,16 @@ Requires Node.js 20+ and npm 10+. For building binaries: [Bun](https://bun.sh).
 
 ## Quick Start
 
-### 1. Configure an LLM provider
+### 1. Install an agent runtime
 
-Pointy Hat calls LLMs directly using your API key. No agent platform required.
-
-```bash
-pointyhat provider setup
-# Interactive: pick provider, enter API key, choose model
-```
-
-Or configure directly:
+Pointy Hat delegates spell execution to an autonomous agent. Install one:
 
 ```bash
-pointyhat config set provider.anthropic.api_key sk-ant-api03-...
-pointyhat config set provider.default anthropic
-```
+# Claude Code (recommended)
+npm install -g @anthropic/claude-code
 
-Supported providers: **Anthropic** (Claude), **OpenAI** (GPT-4), **Google** (Gemini), **Ollama** (local models).
+# Or any MCP-compatible agent — Pointy Hat auto-detects what's available
+```
 
 ### 2. Create a spell
 
@@ -89,7 +82,7 @@ This scaffolds `my-review.spell.yaml` from a built-in template.
 pointyhat spell cast my-review --input-file src/main.py
 ```
 
-Pointy Hat analyzes coverage (do you have the required inputs and tools?), executes each step via your LLM, evaluates quality gates, and writes outputs.
+Pointy Hat analyzes coverage (do you have the required inputs and tools?), spawns an autonomous agent to execute the spell, and independently verifies outcomes via wards.
 
 ### 4. Or let your agent cast it
 
@@ -148,7 +141,7 @@ spell:
         line numbers, explain why each issue matters, suggest fixes.
       depends_on: [analyze]
       catalysts_needed: [review-template]
-      quality_gate:
+      ward:
         criteria: Review must cite specific lines and provide actionable suggestions
         min_score: 0.8
         retry_on_failure: true
@@ -234,7 +227,7 @@ spell:
       instruction: |
         Build on step-one's output.
       depends_on: [step-one]       # Runs after step-one completes
-      quality_gate:                # Ward — quality check
+      ward:                        # Verification check
         criteria: |
           Must include specific examples and
           actionable recommendations.
@@ -253,7 +246,7 @@ spell:
     - id: report
       type: document               # document | data | code | image
       format: [md, pdf]
-      quality_check:
+      ward:
         criteria: Verify completeness and accuracy
         min_score: 0.8
         retry_on_failure: true
@@ -328,40 +321,44 @@ Detects: hardcoded secrets (API keys, tokens), instruction injection patterns, d
 
 ### Standalone Mode (CLI)
 
-The CLI calls your configured LLM provider directly:
+The CLI spawns an autonomous agent to execute the spell:
 
 ```bash
 # Basic cast
-pointyhat spell cast quarterly-report --input-file data.csv
+pointyhat cast quarterly-report --input-file data.csv
 
 # Provide multiple inputs
-pointyhat spell cast quarterly-report \
+pointyhat cast quarterly-report \
   --input financial-data=data.csv \
   --input company-info="Acme Corp, Q3 2025"
 
 # Dry run — coverage analysis only, no execution
-pointyhat spell cast quarterly-report --input-file data.csv --dry-run
+pointyhat cast quarterly-report --input-file data.csv --dry-run
 
-# Run a single step
-pointyhat spell cast quarterly-report --step analyze-data --input-file data.csv
+# Use a specific agent runtime
+pointyhat cast quarterly-report --input-file data.csv --agent claude-code
 
-# Skip quality gates
-pointyhat spell cast quarterly-report --input-file data.csv --skip-wards
+# Skip ward verification
+pointyhat cast quarterly-report --input-file data.csv --skip-wards
 
-# Use a specific provider/model
-pointyhat spell cast quarterly-report --input-file data.csv --provider openai --model gpt-4o
+# Set a timeout (seconds)
+pointyhat cast quarterly-report --input-file data.csv --timeout 300
+
+# Don't stream agent output to terminal
+pointyhat cast quarterly-report --input-file data.csv --no-stream
 
 # Write outputs to a directory
-pointyhat spell cast quarterly-report --input-file data.csv --output-dir ./reports
+pointyhat cast quarterly-report --input-file data.csv --output-dir ./reports
 ```
 
 **What happens during a cast:**
 
 1. **Coverage analysis** — Checks that all required inputs and tools are available. Reports a coverage score and warns about missing items.
-2. **MCP server startup** — Starts any required MCP servers as subprocesses (stdio transport).
-3. **Step execution** — Topologically sorts steps by dependencies. For each step, builds a prompt with the instruction, prior step outputs, catalyst content, and input data. Calls the LLM with attached MCP tools. The LLM executes a tool-use loop until the step completes.
-4. **Ward evaluation** — After each step with a quality gate, sends the output + criteria to the LLM for scoring. If below threshold, retries with feedback.
-5. **Output collection** — Writes final outputs to disk.
+2. **Agent selection** — Auto-detects an available agent runtime (Claude Code, etc.) or uses `--agent`.
+3. **Mission building** — Compiles the spell into a comprehensive agent prompt: outcomes, inputs, catalyst content, suggested steps, and ward criteria.
+4. **Agent execution** — Spawns the agent as a subprocess. The agent runs autonomously with full tool access until it believes all outcomes are met.
+5. **Ward verification** — Independently verifies outcomes: file existence, JSON validity, content checks, and semantic evaluation. If wards fail and retries are configured, the agent is re-invoked with feedback.
+6. **Result reporting** — Reports ward pass/fail status and total execution time.
 
 ### Native Agent Mode (MCP Server)
 
@@ -436,10 +433,10 @@ Catalysts travel with the spell through the registry, are cached locally, and ar
 
 ## Wards: The Trust Layer
 
-Wards are quality gates attached to individual steps. They're what make Spells trustworthy enough to run unattended.
+Wards are independent verification checks that make Spells trustworthy enough to run unattended. Unlike the old approach of asking an LLM to grade its own work, wards use deterministic checks where possible.
 
 ```yaml
-quality_gate:
+ward:
   criteria: >
     Review must cite specific line numbers,
     explain impact of each issue,
@@ -447,9 +444,18 @@ quality_gate:
   min_score: 0.8
   retry_on_failure: true
   max_retries: 2
+  verify_file_exists: [./output/review.md]
+  verify_pattern: "Line \\d+"
 ```
 
-After a step completes, the casting engine sends the output + criteria to the LLM and asks: "Score this from 0.0 to 1.0. Explain deficiencies." If below threshold, the step retries with the feedback. This is how you get from "the AI tried" to "the AI delivered."
+After the agent completes, Pointy Hat independently verifies outcomes:
+- **file_exists / file_not_empty** — Did the agent produce the expected files?
+- **json_valid** — Is the output valid JSON?
+- **file_contains** — Does the output match required patterns?
+- **command_succeeds** — Does a verification command exit 0?
+- **semantic** — For criteria that can't be checked deterministically, an independent LLM evaluation (NOT the same agent) scores the output.
+
+If wards fail and retries are configured, the agent is re-invoked with specific feedback about what failed. The `quality_check` key is still accepted as an alias for `ward`.
 
 ---
 
@@ -681,9 +687,15 @@ src/
     spellbook/             # spellbook add, remove, list, sync
     quality/               # quality scan, test, rate, verify
     install.ts, serve.ts, config.ts, auth.ts, doctor.ts, ...
+  agents/                  # Agent runtime abstraction
+    runtime.ts             # AgentRuntime interface, AgentMission, AgentResult types
+    claude-code.ts         # Claude Code subprocess runtime (primary)
+    registry.ts            # Runtime discovery and auto-selection
+    mission-builder.ts     # Compile spell → agent prompt
   core/
     spell-parser.ts        # YAML parsing + Zod validation + topological sort
-    spell-executor.ts      # Two-phase casting engine (coverage + execution)
+    agent-executor.ts      # Agent-based spell execution orchestrator
+    wards.ts               # Independent outcome verification (file checks, commands, semantic)
     coverage-analyzer.ts   # Pre-cast coverage analysis with semantic matching
     mcp-server.ts          # Pointy Hat as MCP server (native agent mode)
     mcp-subprocess.ts      # MCP server subprocess management (JSON-RPC/stdio)
@@ -696,17 +708,17 @@ src/
     lockfile.ts            # Deterministic installs (pointyhat.lock)
     platform-detector.ts   # Detect installed agent platforms
     platform-writer.ts     # Write MCP configs per platform
-    llm-client.ts          # Multi-provider LLM abstraction
+    llm-client.ts          # LLM abstraction (used for independent ward evaluation)
     auth-manager.ts        # OAuth authentication
     cache.ts               # In-memory + disk cache
     error-handler.ts       # Structured errors with suggestions
   providers/
-    anthropic.ts           # Claude (Sonnet, Opus, Haiku)
-    openai.ts              # GPT-4o, o1, etc.
-    google.ts              # Gemini
-    ollama.ts              # Local models
+    anthropic.ts           # Claude (ward evaluation fallback)
+    openai.ts              # GPT-4o (ward evaluation fallback)
+    google.ts              # Gemini (ward evaluation fallback)
+    ollama.ts              # Local models (ward evaluation fallback)
   types/
-    spell.ts               # Spell YAML Zod schemas
+    spell.ts               # Spell YAML Zod schemas (including Ward)
     config.ts, registry.ts, coverage.ts, quality.ts, ...
   ui/
     spinner.ts, table.ts, prompt.ts, colors.ts, progress.ts
@@ -720,29 +732,30 @@ tests/
 ### How Casting Works
 
 ```
-pointyhat spell cast quarterly-report --input-file data.csv
+pointyhat cast quarterly-report --input-file data.csv
   │
   ├─ 1. Parse spell YAML → validate with Zod schema
   ├─ 2. Coverage analysis → match inputs + tools → score
   │     Can we cast? Required items present?
   │
-  ├─ 3. Start MCP servers as subprocesses (stdio/JSON-RPC)
+  ├─ 3. Select agent runtime (auto-detect or --agent flag)
+  ├─ 4. Resolve MCP server configs from lockfile
+  ├─ 5. Build agent mission:
+  │     └─ Spell outcomes + inputs + catalysts + wards + advisory steps → prompt
   │
-  ├─ 4. Topological sort steps by depends_on
+  ├─ 6. Spawn agent (e.g. Claude Code) as subprocess
+  │     └─ Agent runs autonomously with full tool access
+  │        until it believes all outcomes are met
   │
-  ├─ 5. For each step:
-  │     ├─ Build prompt: instruction + prior outputs + catalysts + inputs
-  │     ├─ Call LLM with MCP tools attached
-  │     ├─ Tool-use loop: LLM calls tools → execute via subprocess → return results
-  │     ├─ Until LLM signals completion
+  ├─ 7. Ward verification (independent):
+  │     ├─ Deterministic: file_exists, json_valid, file_contains, command_succeeds
+  │     ├─ Semantic: independent LLM evaluation (not the executing agent)
   │     │
-  │     └─ If quality_gate defined:
-  │           ├─ Send output + criteria to LLM → get score
-  │           ├─ Score >= threshold? → pass, move on
-  │           └─ Score < threshold? → retry with feedback (up to max_retries)
+  │     └─ If wards fail and retries configured:
+  │           ├─ Build feedback from failures
+  │           └─ Re-invoke agent with feedback → re-verify
   │
-  ├─ 6. Collect outputs → write to --output-dir
-  └─ 7. Shut down MCP subprocesses
+  └─ 8. Report results: ward pass/fail, execution time
 ```
 
 ---

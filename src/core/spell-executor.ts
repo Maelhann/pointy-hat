@@ -1,3 +1,11 @@
+/**
+ * @deprecated Use `agent-executor.ts` instead. This module uses direct LLM API
+ * calls in a bounded loop. The new agent-based executor delegates to autonomous
+ * agents (Claude Code, etc.) and verifies outcomes via wards.
+ *
+ * Retained for backward compatibility — will be removed in a future version.
+ */
+
 import type { SpellDefinition, SpellStep, SpellOutput, QualityCheck } from "../types/spell.js";
 import type { LLMResponse, ContentBlock, Message, ToolDefinition } from "../types/provider.js";
 import type { QualityCheckResult } from "../types/quality.js";

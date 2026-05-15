@@ -243,6 +243,41 @@ export function E_UNPUBLISH_FAILED(name: string, detail: string): PointyHatError
   );
 }
 
+export function E_AGENT_NOT_AVAILABLE(agentId: string): PointyHatError {
+  return new PointyHatError(
+    "E_AGENT_NOT_AVAILABLE",
+    `Agent runtime "${agentId}" is not available.`,
+    [
+      "Ensure the agent is installed (e.g. Claude Code: `npm install -g @anthropic/claude-code`).",
+      "Run `pointyhat doctor` to see available agent runtimes.",
+      "Specify a different runtime with `--agent <name>`.",
+    ],
+  );
+}
+
+export function E_AGENT_EXECUTION_FAILED(detail: string): PointyHatError {
+  return new PointyHatError(
+    "E_AGENT_EXECUTION_FAILED",
+    `Agent execution failed: ${detail}`,
+    [
+      "Check the agent output above for errors.",
+      "Ensure required MCP servers are installed.",
+      "Try with `--verbose` for more detail.",
+    ],
+  );
+}
+
+export function E_WARD_FAILED(wardId: string, message: string): PointyHatError {
+  return new PointyHatError(
+    "E_WARD_FAILED",
+    `Ward verification failed for "${wardId}": ${message}`,
+    [
+      "The agent's output did not satisfy the ward criteria.",
+      "Try running again or use `--skip-wards` to bypass verification.",
+    ],
+  );
+}
+
 export function E_CATALYST_NOT_FOUND(spellName: string, catalystId: string): PointyHatError {
   return new PointyHatError(
     "E_CATALYST_NOT_FOUND",

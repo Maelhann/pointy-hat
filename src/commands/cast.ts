@@ -1,10 +1,10 @@
 import { resolve, basename } from "node:path";
 import type { Command } from "commander";
 import { parseSpellFile } from "../core/spell-parser.js";
-import { castSpell, type CastOptions } from "../core/spell-executor.js";
+import { castSpellWithAgent, type AgentCastOptions } from "../core/agent-executor.js";
 import { ConfigManager } from "../core/config-manager.js";
 import { handleError } from "../core/error-handler.js";
-import { readFile, fileExists, writeFile, ensureDir } from "../utils/fs.js";
+import { readFile, fileExists } from "../utils/fs.js";
 import { formatSuccess, formatWarning } from "../ui/format.js";
 import { statusIcon } from "../ui/colors.js";
 import { printTable } from "../ui/table.js";
@@ -14,32 +14,31 @@ import chalk from "chalk";
 export function registerCastCommand(program: Command): void {
   program
     .command("cast <spell>")
-    .description("Cast (execute) a spell")
+    .description("Cast (execute) a spell via an autonomous agent")
     .option("--dry-run", "Run coverage analysis only, don't execute")
     .option("-v, --verbose", "Verbose output")
     .option("--input <key=val...>", "Provide inputs (key=value pairs)", collectInputs, [])
     .option("--input-file <path>", "Provide an input file")
     .option("--output-dir <dir>", "Output directory", "./output")
-    .option("--provider <provider>", "Override LLM provider")
-    .option("--model <model>", "Override LLM model")
-    .option("--step <id>", "Run only a specific step")
-    .option("--skip-quality-checks", "Skip quality gate evaluation")
+    .option("--agent <runtime>", "Agent runtime to use (e.g. claude-code)")
+    .option("--skip-wards", "Skip ward verification after execution")
+    .option("--timeout <seconds>", "Maximum agent execution time in seconds", parseInt)
+    .option("--no-stream", "Don't stream agent output to terminal")
     .action(async (spellPath: string, opts: {
       dryRun?: boolean;
       verbose?: boolean;
       input: string[];
       inputFile?: string;
       outputDir: string;
-      provider?: string;
-      model?: string;
-      step?: string;
-      skipQualityChecks?: boolean;
+      agent?: string;
+      skipWards?: boolean;
+      timeout?: number;
+      stream?: boolean;
     }) => {
       try {
         // Resolve spell path
         const resolved = resolve(spellPath);
         if (!(await fileExists(resolved))) {
-          // Try appending .spell.yaml
           const withExt = resolve(`${spellPath}.spell.yaml`);
           if (await fileExists(withExt)) {
             spellPath = withExt;
@@ -58,7 +57,6 @@ export function registerCastCommand(program: Command): void {
         // Gather inputs
         const inputs: ProvidedInput[] = [];
 
-        // From --input key=val pairs
         for (const kv of opts.input) {
           const eqIdx = kv.indexOf("=");
           if (eqIdx > 0) {
@@ -66,7 +64,6 @@ export function registerCastCommand(program: Command): void {
           }
         }
 
-        // From --input-file
         if (opts.inputFile) {
           const filePath = resolve(opts.inputFile);
           if (await fileExists(filePath)) {
@@ -79,18 +76,19 @@ export function registerCastCommand(program: Command): void {
           }
         }
 
-        // Cast
+        // Cast via agent
         const configManager = new ConfigManager();
-        const castOptions: CastOptions = {
+        const castOptions: AgentCastOptions = {
           dryRun: opts.dryRun,
           verbose: opts.verbose,
           outputDir: opts.outputDir,
-          model: opts.model,
-          stepId: opts.step,
-          skipQualityChecks: opts.skipQualityChecks,
+          agentId: opts.agent,
+          skipWards: opts.skipWards,
+          timeout: opts.timeout,
+          streamOutput: opts.stream !== false,
         };
 
-        const result = await castSpell(spell, inputs, configManager, castOptions);
+        const result = await castSpellWithAgent(spell, inputs, configManager, castOptions);
 
         // Print coverage summary
         if (opts.dryRun || opts.verbose) {
@@ -108,42 +106,42 @@ export function registerCastCommand(program: Command): void {
         }
 
         if (opts.dryRun) {
-          console.log(chalk.dim("\n--dry-run: No steps were executed.\n"));
+          console.log(chalk.dim("\n--dry-run: No execution performed.\n"));
           return;
         }
 
-        // Print step results
-        if (result.steps.length > 0) {
-          console.log(chalk.bold("\nStep Results:"));
-          for (const step of result.steps) {
-            if (step.skipped) {
-              console.log(`  ${statusIcon("info")} ${step.stepId} ${chalk.dim("(skipped)")}`);
-              continue;
+        // Print ward results
+        if (result.wards.length > 0) {
+          console.log(chalk.bold("\nWard Results:"));
+          for (const ward of result.wards) {
+            const icon = ward.passed ? chalk.green("✓") : chalk.red("✗");
+            console.log(`  ${icon} ${ward.wardId} (${ward.durationMs}ms)`);
+            if (!ward.passed) {
+              console.log(chalk.red(`    ${ward.message}`));
             }
-            const qualityInfo = step.qualityPassed !== undefined
-              ? ` quality: ${step.qualityPassed ? chalk.green(String(step.qualityScore?.toFixed(2))) : chalk.red(String(step.qualityScore?.toFixed(2)))}`
-              : "";
-            console.log(
-              `  ${statusIcon("ok")} ${step.stepId} (${step.durationMs}ms${step.retryCount > 0 ? `, ${step.retryCount} retries` : ""}${qualityInfo})`,
-            );
           }
         }
 
-        // Write outputs
-        if (result.success && result.steps.some((s) => s.output)) {
-          await ensureDir(opts.outputDir);
-          for (const step of result.steps) {
-            if (step.output && !step.skipped) {
-              const outPath = resolve(opts.outputDir, `${step.stepId}.md`);
-              await writeFile(outPath, step.output);
-            }
-          }
-          console.log(formatSuccess(`\nOutputs written to ${chalk.bold(opts.outputDir)}/`));
+        const wardsPassed = result.wards.filter((w) => w.passed).length;
+        const wardsTotal = result.wards.length;
+
+        if (result.success) {
+          console.log(formatSuccess(
+            wardsTotal > 0
+              ? `\nSpell cast successfully — ${wardsPassed}/${wardsTotal} wards passed.`
+              : `\nSpell cast successfully.`,
+          ));
+        } else {
+          console.log(chalk.red(
+            `\nSpell cast completed with ward failures — ${wardsPassed}/${wardsTotal} wards passed.`,
+          ));
         }
 
         console.log(
           `\nTotal time: ${(result.totalDurationMs / 1000).toFixed(1)}s\n`,
         );
+
+        if (!result.success) process.exit(1);
       } catch (err) {
         handleError(err);
         process.exit(1);
